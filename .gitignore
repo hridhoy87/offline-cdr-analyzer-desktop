@@ -1,0 +1,7 @@
+# Virtual Environment
+.cdranalyzer-desktop/
+
+# PyInstaller Build Artifacts
+build/
+dist/
+*.spec

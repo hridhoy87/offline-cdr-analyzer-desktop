@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        html, body { 
+            margin: 0; 
+            padding: 0; 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden; 
+            background-color: #0d1117; 
+            font-family: sans-serif; 
+        }
+        #graph-container { 
+            width: 100%; 
+            height: 100%; 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+        }
+        .scene-tooltip {
+            color: #ffffff !important;
+            background: rgba(22, 27, 34, 0.9) !important;
+            padding: 8px 12px !important;
+            border-radius: 6px !important;
+            font-size: 12px !important;
+            border: 1px solid #30363d !important;
+        }
+        .legend {
+            position: absolute; top: 20px; right: 20px;
+            background: rgba(13, 17, 23, 0.85);
+            padding: 15px; border-radius: 8px;
+            font-size: 12px; color: #c9d1d9;
+            border: 1px solid #30363d; z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            pointer-events: none;
+        }
+        .legend-item { display: flex; align-items: center; margin-bottom: 6px; }
+        .legend-color { width: 12px; height: 12px; border-radius: 5px; margin-right: 8px; }
+
+        /* --- RESTORED FLOATING DATA DETAILED OVERLAY --- */
+        .profile-overlay {
+            position: absolute; bottom: 20px; left: 20px; z-index: 1001;
+            background: rgba(13, 17, 23, 0.95); padding: 15px; border-radius: 10px;
+            border: 1px solid #30363d; display: none; color: #f0f6fc;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); font-size: 13px; min-width: 280px;
+            max-width: 350px; pointer-events: auto;
+        }
+        .profile-title { color: #58a6ff; font-weight: bold; font-size: 14px; margin-bottom: 10px; border-bottom: 1px solid #30363d; padding-bottom: 5px; }
+        .profile-row { margin-bottom: 6px; line-height: 1.4; }
+        .profile-label { color: #8b949e; font-weight: bold; }
+        .close-profile { float: right; cursor: pointer; color: #ff4d4d; font-weight: bold; font-size: 14px; }
+    </style>
+    <script src="three.min.js"></script>
+    <script src="3d-force-graph.min.js"></script>
+</head>
+<body>
+    <div class="legend">
+        <div class="legend-item"><div class="legend-color" style="background: #3182ce;"></div>Primary Target (A-Party)</div>
+        <div class="legend-item"><div class="legend-color" style="background: #e53e3e;"></div>Common Overlap Node (Shared B)</div>
+        <div class="legend-item"><div class="legend-color" style="background: #718096;"></div>Standard Contact (B-Party)</div>
+    </div>
+
+    <div id="graph-container"></div>
+
+    <div id="profile" class="profile-overlay">
+        <span class="close-profile" onclick="document.getElementById('profile').style.display='none'">✕</span>
+        <div id="profile-content"></div>
+    </div>
+
+    <script>
+        const Graph = ForceGraph3D()(document.getElementById('graph-container'));
+        
+        window.addEventListener('resize', () => {
+            Graph.width(window.innerWidth);
+            Graph.height(window.innerHeight);
+        });
+
+        window.renderOfflineData = function(jsonStr) {
+            try {
+                const raw = JSON.parse(jsonStr);
+                
+                const centers = new Set((raw.centers || []).map(String));
+                const nodes = [];
+                const links = [];
+                const addedNodes = new Set();
+                const profiles = raw.node_profiles || {};
+
+                // Process Intercept Center Hubs (Suspects)
+                centers.forEach(c => {
+                    nodes.push({ id: c, isCenter: true, isCommon: false });
+                    addedNodes.add(c);
+                });
+
+                // Process Common Contacts (Shared B-Parties)
+                if (raw["common-links"]) {
+                    raw["common-links"].forEach(item => {
+                        const tgt = String(item.target);
+                        if (!addedNodes.has(tgt)) {
+                            nodes.push({ id: tgt, isCenter: false, isCommon: true });
+                            addedNodes.add(tgt);
+                        }
+                        if (item.source) {
+                            item.source.forEach(src => {
+                                links.push({ source: String(src), target: tgt, isCommonLink: true });
+                            });
+                        }
+                    });
+                }
+
+                // Process Uncommon Independent Connections
+                if (raw["uncommon-links"]) {
+                    raw["uncommon-links"].forEach(item => {
+                        const src = String(item.source);
+                        if (item["target-links"]) {
+                            item["target-links"].forEach(t => {
+                                const tid = String(t);
+                                if (!addedNodes.has(tid)) {
+                                    nodes.push({ id: tid, isCenter: false, isCommon: false });
+                                    addedNodes.add(tid);
+                                }
+                                links.push({ source: src, target: tid, isCommonLink: false });
+                            });
+                        }
+                    });
+                }
+
+                // Node visual rules mappings configuration
+                Graph.nodeColor(node => {
+                        if (node.isCommon) return '#e53e3e'; 
+                        if (node.isCenter) return '#3182ce'; 
+                        return '#718096';                    
+                     })
+                     .nodeVal(node => node.isCenter ? 12 : (node.isCommon ? 9 : 5))
+                     .linkColor(link => link.isCommonLink ? '#f0f6fc' : 'rgba(48, 54, 61, 0.4)')
+                     .linkOpacity(0.8)
+                     .linkDirectionalParticles(link => link.isCommonLink ? 3 : 0)
+                     .linkDirectionalParticleWidth(2)
+                     .linkDirectionalParticleColor(() => '#e53e3e');
+
+                // --- 🎯 OPTIMIZED HIGH-ATTRACTION PHYSICS MATRIX ENGINE ---
+                // 1. Reduce Repulsion: Lowered charge strength to keep nodes tightly grouped
+                Graph.d3Force('charge').strength(-20);
+                
+                // 2. Reduce Physical Distance: Compact spring length constraint
+                Graph.d3Force('link').distance(link => link.isCommonLink ? 25 : 12);
+                
+                // 3. Reduce Drift: Strong gravity pull centering vector arrays to the origin 
+                Graph.d3Force('center').strength(0.85);
+
+                // --- 🔬 RESTORED DETAILED OVERLAY POPULATOR MAPPING ---
+                Graph.onNodeClick(node => {
+                    const profile = profiles[node.id] || {};
+                    const total = profile.total || "N/A";
+                    const firstCall = profile.first || "Unknown";
+                    const lastCall = profile.last || "Unknown";
+                    const topLoc = profile.top_loc || "No Location Address Available";
+                    
+                    let assignment = "Standard Endpoint Contact (B-Party)";
+                    if (node.isCenter) assignment = "Primary Target Suspect (A-Party)";
+                    if (node.isCommon) assignment = "Cross-Linked Intercept Matrix Node (Shared B)";
+
+                    const overlay = document.getElementById('profile');
+                    const content = document.getElementById('profile-content');
+                    
+                    content.innerHTML = `
+                        <div class="profile-title">🔬 Node Intelligence Profile</div>
+                        <div class="profile-row"><span class="profile-label">Target ID:</span> ${node.id}</div>
+                        <div class="profile-row"><span class="profile-label">Classification:</span> ${assignment}</div>
+                        <div class="profile-row"><span class="profile-label">Total Transactions:</span> ${total} calls</div>
+                        <div class="profile-row"><span class="profile-label">First Event Logged:</span> ${firstCall}</div>
+                        <div class="profile-row"><span class="profile-label">Last Event Logged:</span> ${lastCall}</div>
+                        <div class="profile-row"><span class="profile-label">Top Location Hub:</span><br/><i style="color: #ffb86c; font-size: 12px;">${topLoc}</i></div>
+                    `;
+                    overlay.style.display = 'block';
+                });
+
+                Graph.graphData({ nodes, links });
+                
+                setTimeout(() => {
+                    Graph.zoomToFit(600, 100);
+                }, 300);
+            } catch (e) { 
+                console.error("Data topology extraction error: ", e); 
+            }
+        };
+    </script>
+</body>
+</html>
