@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Chronological Spatial-Temporal Route Visualizer</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --border-color: #30363d;
+            --text-primary: #c9d1d9;
+            --text-link: #58a6ff;
+            --accent-pink: #ff79c6;
+            --timeline-spine: #388bfd;
+            --modal-overlay: rgba(0, 0, 0, 0.85);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            padding: 25px;
+            min-height: 100vh;
+            overflow-y: auto;
+        }
+
+        .canvas-container {
+            width: 100%;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        /* 🚂 TRAIN ROW MATRIX: One unique CDR target sits strictly under another */
+        .target-section {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .target-header {
+            color: var(--text-link);
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+        }
+
+        /* 🚊 HORIZONTAL CARRIAGE LINE: Chaining historical days side-by-side */
+        .days-horizontal-train {
+            display: flex;
+            flex-direction: row;
+            overflow-x: auto;
+            overflow-y: hidden;
+            width: 100%;
+            padding-bottom: 15px;
+            scroll-behavior: smooth;
+        }
+
+        .days-horizontal-train::-webkit-scrollbar {
+            height: 8px;
+        }
+        .days-horizontal-train::-webkit-scrollbar-track {
+            background: #161b22;
+            border-radius: 4px;
+        }
+        .days-horizontal-train::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 4px;
+        }
+        .days-horizontal-train::-webkit-scrollbar-thumb:hover {
+            background: var(--text-link);
+        }
+
+        .day-carriage-block {
+            display: flex;
+            flex-direction: column;
+            min-width: 900px; 
+            padding-right: 25px;
+            position: relative;
+        }
+
+        /* 🛑 High-contrast vertical track divider between days */
+        .day-carriage-block:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 5%;
+            bottom: 5%;
+            width: 2px;
+            background: linear-gradient(to bottom, transparent, var(--border-color), transparent);
+        }
+
+        .date-banner {
+            font-size: 12px;
+            font-weight: bold;
+            color: var(--accent-pink);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .timeline-track-wrapper {
+            position: relative;
+            width: 100%;
+            height: 50px;
+            background-color: rgba(33, 38, 45, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+        }
+
+        .timeline-spine {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 50%;
+            height: 2px;
+            background-color: var(--border-color);
+            z-index: 1;
+        }
+
+        .telemetry-pin {
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 3;
+            cursor: pointer;
+            font-size: 18px;
+            transition: transform 0.1s ease;
+        }
+
+        .telemetry-pin:hover {
+            transform: translate(-50%, -50%) scale(1.4);
+        }
+
+        .telemetry-pin .pin-hint {
+            visibility: hidden;
+            background-color: #1f242c;
+            color: #f0f6fc;
+            text-align: left;
+            border-radius: 6px;
+            padding: 10px 14px;
+            position: absolute;
+            z-index: 100;
+            bottom: 135%;
+            left: 50%;
+            transform: translateX(-50%);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+            border: 1px solid #484f58;
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.15s ease;
+            pointer-events: none;
+        }
+
+        .telemetry-pin:hover .pin-hint {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        /* 🕒 HOURLY BOUNDARY METRICS ONLY */
+        .axis-grid-labels {
+            position: relative;
+            width: 100%;
+            height: 20px;
+            margin-top: 8px;
+        }
+
+        .axis-tick {
+            position: absolute;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: #8b949e;
+            font-family: monospace;
+        }
+
+        .axis-tick::before {
+            content: '';
+            position: absolute;
+            top: -8px;
+            left: 50%;
+            width: 1px;
+            height: 5px;
+            background-color: var(--border-color);
+        }
+
+        /* Interactive Detail Window Overlay Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: var(--modal-overlay);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            width: 480px;
+            padding: 24px;
+            box-shadow: 0 12px 36px rgba(0,0,0,0.7);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .modal-title {
+            color: #f0f6fc;
+            font-size: 14px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        .modal-close {
+            color: #8b949e;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .modal-close:hover {
+            color: #f0f6fc;
+        }
+
+        .meta-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .meta-label {
+            font-size: 11px;
+            color: #8b949e;
+            text-transform: uppercase;
+            font-weight: bold;
+        }
+
+        .meta-value {
+            font-size: 13px;
+            color: #f0f6fc;
+            background: var(--bg-primary);
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            word-break: break-word;
+        }
+
+        /* =========================================================================
+        /* 🖨️ BLACK & WHITE A4 PRINT ENGINE OVERRIDES
+        /* ========================================================================= */
+        @media print {
+            body {
+                background-color: #ffffff !important;
+                color: #000000 !important;
+                padding: 0 !important;
+                overflow: visible !important;
+            }
+            .canvas-container {
+                gap: 25px !important;
+            }
+            .target-section {
+                background-color: #ffffff !important;
+                border: 2px solid #000000 !important;
+                box-shadow: none !important;
+                page-break-inside: avoid !important;
+                padding: 15px !important;
+                margin-bottom: 20px !important;
+            }
+            .target-header {
+                color: #000000 !important;
+                border-bottom: 2px solid #000000 !important;
+                font-size: 14px !important;
+            }
+            /* Cleanly stack track layers within available printable page width bounds */
+            .days-horizontal-train {
+                flex-direction: column !important;
+                overflow-x: visible !important;
+                overflow-y: visible !important;
+                padding-bottom: 0 !important;
+                gap: 25px !important;
+            }
+            .day-carriage-block {
+                min-width: 100% !important;
+                width: 100% !important;
+                padding-right: 0 !important;
+                page-break-inside: avoid !important;
+            }
+            .day-carriage-block:not(:last-child)::after {
+                display: none !important; 
+            }
+            .date-banner {
+                color: #000000 !important;
+                font-size: 11px !important;
+            }
+            .timeline-track-wrapper {
+                background-color: #ffffff !important;
+                border: 1.5px solid #000000 !important;
+                height: 35px !important;
+            }
+            .timeline-spine {
+                background-color: #000000 !important;
+                height: 1px !important;
+            }
+            .telemetry-pin {
+                color: #000000 !important;
+                font-size: 13px !important;
+            }
+            .axis-tick {
+                color: #000000 !important;
+                font-size: 8px !important;
+            }
+            .axis-tick::before {
+                background-color: #000000 !important;
+            }
+            .modal-overlay, .pin-hint {
+                display: none !important; 
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="canvas-container" id="timelineMasterDeck">
+        <div style="text-align: center; padding-top: 60px; color: #8b949e;">Awaiting system calculation vectors...</div>
+    </div>
+
+    <script>
+        function convertTimeToSeconds(timeStr) {
+            if (!timeStr || !timeStr.includes(' ')) return 0;
+            const parts = timeStr.split(' ')[1].split(':');
+            return (parseInt(parts[0]) * 3600) + (parseInt(parts[1]) * 60) + parseInt(parts[2]);
+        }
+
+        function closeForensicModal() {
+            document.getElementById('forensicModal').classList.remove('active');
+        }
+
+        function renderRoadmapData(payload) {
+            const container = document.getElementById('timelineMasterDeck');
+            container.innerHTML = '';
+
+            if (!payload || payload.length === 0) {
+                container.innerHTML = "<div style='text-align:center; padding-top:40px; color:#8b949e;'>No movement path records identified.</div>";
+                return;
+            }
+
+            // Group by Target A_Party
+            const targetGrouping = {};
+            payload.forEach(item => {
+                if (!item.Arrived) return;
+                const datePart = item.Arrived.split(' ')[0];
+                const key = item.A_Party || "Unique Target Profile"; 
+                
+                if (!targetGrouping[key]) targetGrouping[key] = {};
+                if (!targetGrouping[key][datePart]) targetGrouping[key][datePart] = [];
+                targetGrouping[key][datePart].push(item);
+            });
+
+            for (const [targetName, dateBlocks] of Object.entries(targetGrouping)) {
+                // Container for this specific target train line row
+                const section = document.createElement('div');
+                section.className = 'target-section';
+
+                const header = document.createElement('div');
+                header.className = 'target-header';
+                header.innerHTML = `👤 <b>Unique CDR Record Target: ${targetName}</b>`;
+                section.appendChild(header);
+
+                // 🚊 The Horizontal Train track wrapper container
+                const trainTrackHorizontal = document.createElement('div');
+                trainTrackHorizontal.className = 'days-horizontal-train';
+
+                // Sort dates chronologically
+                const sortedDates = Object.keys(dateBlocks).sort();
+
+                sortedDates.forEach(dateText => {
+                    const nodes = dateBlocks[dateText];
+
+                    const dayCarriage = document.createElement('div');
+                    dayCarriage.className = 'day-carriage-block';
+
+                    const dateBanner = document.createElement('div');
+                    dateBanner.className = 'date-banner';
+                    dateBanner.innerHTML = `📅 <b>Date Layer: ${dateText}</b>`;
+                    dayCarriage.appendChild(dateBanner);
+
+                    const trackWrapper = document.createElement('div');
+                    trackWrapper.className = 'timeline-track-wrapper';
+                    
+                    const spine = document.createElement('div');
+                    spine.className = 'timeline-spine';
+                    trackWrapper.appendChild(spine);
+
+                    nodes.forEach(node => {
+                        const pinSeconds = convertTimeToSeconds(node.Arrived);
+                        const positionPercentage = (pinSeconds / 86400) * 100;
+
+                        const pin = document.createElement('div');
+                        pin.className = 'telemetry-pin';
+                        pin.style.left = `${positionPercentage}%`;
+                        
+                        const typeVal = node.Type || node.Reason || "MOC";
+                        const bPartyVal = node.B_Party || "System Gateway Connection";
+
+                        pin.innerHTML = '📍';
+
+                        const hint = document.createElement('div');
+                        hint.className = 'pin-hint';
+                        hint.innerHTML = `
+                            <strong>B-Party:</strong> ${bPartyVal}<br/>
+                            <strong>Type:</strong> ${typeVal}
+                        `;
+                        pin.appendChild(hint);
+
+                        pin.onclick = (e) => {
+                            e.stopPropagation();
+                            const overlay = document.getElementById('forensicModal');
+                            
+                            document.getElementById('modalSeq').innerText = node.Sequence || "--";
+                            document.getElementById('modalParties').innerHTML = `A-Party Target: <b>${node.A_Party || targetName}</b><br/>B-Party Recipient: <b>${bPartyVal}</b><br/>Call Type Indicator: <b>${typeVal}</b>`;
+                            document.getElementById('modalDuration').innerText = node.Duration || "Instant Telemetry Checkpoint";
+                            document.getElementById('modalWindow').innerHTML = `${node.Arrived} <br/>➔ ${node.Departed || node.Arrived}`;
+                            document.getElementById('modalLocation').innerText = node.Location || node.BTS_Loc || "Unknown Tower Sector Coordinates";
+                            document.getElementById('modalNetwork').innerHTML = `Location Area Code (LAC): <b>${node.LAC}</b><br/>Cell Identification Tower ID: <b>${node.Cell}</b>`;
+                            
+                            overlay.classList.add('active');
+                        };
+
+                        trackWrapper.appendChild(pin);
+                    });
+                    dayCarriage.appendChild(trackWrapper);
+
+                    // 🕒 STRICTLY HOURLY TICKS ONLY
+                    const axisGrid = document.createElement('div');
+                    axisGrid.className = 'axis-grid-labels';
+                    for (let hour = 0; hour < 24; hour++) {
+                        const totalSeconds = hour * 3600;
+                        const percent = (totalSeconds / 86400) * 100;
+
+                        const tick = document.createElement('div');
+                        tick.className = 'axis-tick';
+                        tick.style.left = `${percent}%`;
+                        tick.innerText = `${String(hour).padStart(2, '0')}:00`;
+                        axisGrid.appendChild(tick);
+                    }
+                    dayCarriage.appendChild(axisGrid);
+                    
+                    trainTrackHorizontal.appendChild(dayCarriage);
+                });
+
+                section.appendChild(trainTrackHorizontal);
+                container.appendChild(section);
+            }
+        }
+    </script>
+</body>
+</html>
