@@ -29,6 +29,7 @@
             padding: 25px;
             min-height: 100vh;
             overflow-y: auto;
+            position: relative;
         }
 
         .canvas-container {
@@ -39,7 +40,6 @@
             gap: 30px;
         }
 
-        /* 🚂 TRAIN ROW MATRIX: One unique CDR target sits strictly under another */
         .target-section {
             background-color: var(--bg-secondary);
             border: 1px solid var(--border-color);
@@ -62,7 +62,6 @@
             padding-bottom: 8px;
         }
 
-        /* 🚊 HORIZONTAL CARRIAGE LINE: Chaining historical days side-by-side */
         .days-horizontal-train {
             display: flex;
             flex-direction: row;
@@ -96,7 +95,6 @@
             position: relative;
         }
 
-        /* 🛑 High-contrast vertical track divider between days */
         .day-carriage-block:not(:last-child)::after {
             content: '';
             position: absolute;
@@ -150,34 +148,24 @@
             transform: translate(-50%, -50%) scale(1.4);
         }
 
-        .telemetry-pin .pin-hint {
-            visibility: hidden;
+        /* 🌏 GLOBAL FLOATING HOVER CARD - Escapes tracking container clipping */
+        #globalTimelineTooltip {
+            position: fixed;
+            display: none;
             background-color: #1f242c;
             color: #f0f6fc;
             text-align: left;
             border-radius: 6px;
             padding: 10px 14px;
-            position: absolute;
-            z-index: 100;
-            bottom: 135%;
-            left: 50%;
-            transform: translateX(-50%);
+            z-index: 99999;
             box-shadow: 0 8px 24px rgba(0,0,0,0.6);
             border: 1px solid #484f58;
             font-size: 12px;
             line-height: 1.5;
             white-space: nowrap;
-            opacity: 0;
-            transition: opacity 0.15s ease;
             pointer-events: none;
         }
 
-        .telemetry-pin:hover .pin-hint {
-            visibility: visible;
-            opacity: 1;
-        }
-
-        /* 🕒 HOURLY BOUNDARY METRICS ONLY */
         .axis-grid-labels {
             position: relative;
             width: 100%;
@@ -203,7 +191,7 @@
             background-color: var(--border-color);
         }
 
-        /* Interactive Detail Window Overlay Modal */
+        /* 🏢 DETAIL INTERACTION MODAL CONTAINER */
         .modal-overlay {
             position: fixed;
             top: 0;
@@ -211,7 +199,7 @@
             width: 100vw;
             height: 100vh;
             background-color: var(--modal-overlay);
-            z-index: 1000;
+            z-index: 100000;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -286,9 +274,6 @@
             word-break: break-word;
         }
 
-        /* =========================================================================
-        /* 🖨️ BLACK & WHITE A4 PRINT ENGINE OVERRIDES
-        /* ========================================================================= */
         @media print {
             body {
                 background-color: #ffffff !important;
@@ -296,9 +281,7 @@
                 padding: 0 !important;
                 overflow: visible !important;
             }
-            .canvas-container {
-                gap: 25px !important;
-            }
+            .canvas-container { gap: 25px !important; }
             .target-section {
                 background-color: #ffffff !important;
                 border: 2px solid #000000 !important;
@@ -312,7 +295,6 @@
                 border-bottom: 2px solid #000000 !important;
                 font-size: 14px !important;
             }
-            /* Cleanly stack track layers within available printable page width bounds */
             .days-horizontal-train {
                 flex-direction: column !important;
                 overflow-x: visible !important;
@@ -326,36 +308,18 @@
                 padding-right: 0 !important;
                 page-break-inside: avoid !important;
             }
-            .day-carriage-block:not(:last-child)::after {
-                display: none !important; 
-            }
-            .date-banner {
-                color: #000000 !important;
-                font-size: 11px !important;
-            }
+            .day-carriage-block:not(:last-child)::after { display: none !important; }
+            .date-banner { color: #000000 !important; font-size: 11px !important; }
             .timeline-track-wrapper {
                 background-color: #ffffff !important;
                 border: 1.5px solid #000000 !important;
                 height: 35px !important;
             }
-            .timeline-spine {
-                background-color: #000000 !important;
-                height: 1px !important;
-            }
-            .telemetry-pin {
-                color: #000000 !important;
-                font-size: 13px !important;
-            }
-            .axis-tick {
-                color: #000000 !important;
-                font-size: 8px !important;
-            }
-            .axis-tick::before {
-                background-color: #000000 !important;
-            }
-            .modal-overlay, .pin-hint {
-                display: none !important; 
-            }
+            .timeline-spine { background-color: #000000 !important; height: 1px !important; }
+            .telemetry-pin { color: #000000 !important; font-size: 13px !important; }
+            .axis-tick { color: #000000 !important; font-size: 8px !important; }
+            .axis-tick::before { background-color: #000000 !important; }
+            .modal-overlay, #globalTimelineTooltip { display: none !important; }
         }
     </style>
 </head>
@@ -363,6 +327,37 @@
 
     <div class="canvas-container" id="timelineMasterDeck">
         <div style="text-align: center; padding-top: 60px; color: #8b949e;">Awaiting system calculation vectors...</div>
+    </div>
+
+    <div id="globalTimelineTooltip"></div>
+
+    <div class="modal-overlay" id="forensicModal" onclick="closeForensicModal()">
+        <div class="modal-card" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div class="modal-title">Sequence Index Target: #<span id="modalSeq">--</span></div>
+                <div class="modal-close" onclick="closeForensicModal()">&times;</div>
+            </div>
+            <div class="meta-row">
+                <div class="meta-label">Intercept Target Configuration</div>
+                <div class="meta-value" id="modalParties">--</div>
+            </div>
+            <div class="meta-row">
+                <div class="meta-label">Temporal Window Duration</div>
+                <div class="meta-value" id="modalDuration">--</div>
+            </div>
+            <div class="meta-row">
+                <div class="meta-label">Transaction Timestamps (Arrived ➔ Departed)</div>
+                <div class="meta-value" id="modalWindow">--</div>
+            </div>
+            <div class="meta-row">
+                <div class="meta-label">Assigned Sector Area Log</div>
+                <div class="meta-value" id="modalLocation">--</div>
+            </div>
+            <div class="meta-row">
+                <div class="meta-label">Network Infrastructure Cell IDs</div>
+                <div class="meta-value" id="modalNetwork">--</div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -385,6 +380,8 @@
                 return;
             }
 
+            const tooltipEl = document.getElementById('globalTimelineTooltip');
+
             // Group by Target A_Party
             const targetGrouping = {};
             payload.forEach(item => {
@@ -398,7 +395,6 @@
             });
 
             for (const [targetName, dateBlocks] of Object.entries(targetGrouping)) {
-                // Container for this specific target train line row
                 const section = document.createElement('div');
                 section.className = 'target-section';
 
@@ -407,11 +403,9 @@
                 header.innerHTML = `👤 <b>Unique CDR Record Target: ${targetName}</b>`;
                 section.appendChild(header);
 
-                // 🚊 The Horizontal Train track wrapper container
                 const trainTrackHorizontal = document.createElement('div');
                 trainTrackHorizontal.className = 'days-horizontal-train';
 
-                // Sort dates chronologically
                 const sortedDates = Object.keys(dateBlocks).sort();
 
                 sortedDates.forEach(dateText => {
@@ -439,22 +433,33 @@
                         const pin = document.createElement('div');
                         pin.className = 'telemetry-pin';
                         pin.style.left = `${positionPercentage}%`;
-                        
+                        pin.innerHTML = '📍';
+
                         const typeVal = node.Type || node.Reason || "MOC";
                         const bPartyVal = node.B_Party || "System Gateway Connection";
 
-                        pin.innerHTML = '📍';
+                        // 📡 FLOATING MOUSE OVER/LEAVE EVENT LOGIC
+                        pin.onmouseenter = (e) => {
+                            tooltipEl.innerHTML = `
+                                <strong>B-Party:</strong> ${bPartyVal}<br/>
+                                <strong>Type:</strong> ${typeVal}
+                            `;
+                            tooltipEl.style.display = 'block';
+                        };
 
-                        const hint = document.createElement('div');
-                        hint.className = 'pin-hint';
-                        hint.innerHTML = `
-                            <strong>B-Party:</strong> ${bPartyVal}<br/>
-                            <strong>Type:</strong> ${typeVal}
-                        `;
-                        pin.appendChild(hint);
+                        pin.onmousemove = (e) => {
+                            tooltipEl.style.left = (e.clientX + 15) + 'px';
+                            tooltipEl.style.top = (e.clientY - 40) + 'px';
+                        };
 
+                        pin.onmouseleave = () => {
+                            tooltipEl.style.display = 'none';
+                        };
+
+                        // 🛠️ RELIABLE MODAL VIEW TRIGGERS UPON CLICK
                         pin.onclick = (e) => {
                             e.stopPropagation();
+                            tooltipEl.style.display = 'none'; // Clear the hover out of the view
                             const overlay = document.getElementById('forensicModal');
                             
                             document.getElementById('modalSeq').innerText = node.Sequence || "--";
@@ -462,7 +467,7 @@
                             document.getElementById('modalDuration').innerText = node.Duration || "Instant Telemetry Checkpoint";
                             document.getElementById('modalWindow').innerHTML = `${node.Arrived} <br/>➔ ${node.Departed || node.Arrived}`;
                             document.getElementById('modalLocation').innerText = node.Location || node.BTS_Loc || "Unknown Tower Sector Coordinates";
-                            document.getElementById('modalNetwork').innerHTML = `Location Area Code (LAC): <b>${node.LAC}</b><br/>Cell Identification Tower ID: <b>${node.Cell}</b>`;
+                            document.getElementById('modalNetwork').innerHTML = `Location Area Code (LAC): <b>${node.LAC || '--'}</b><br/>Cell Identification Tower ID: <b>${node.Cell || '--'}</b>`;
                             
                             overlay.classList.add('active');
                         };
@@ -471,7 +476,6 @@
                     });
                     dayCarriage.appendChild(trackWrapper);
 
-                    // 🕒 STRICTLY HOURLY TICKS ONLY
                     const axisGrid = document.createElement('div');
                     axisGrid.className = 'axis-grid-labels';
                     for (let hour = 0; hour < 24; hour++) {

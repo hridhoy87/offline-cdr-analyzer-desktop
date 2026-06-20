@@ -507,6 +507,6 @@ def same_location_analysis(file_paths, progress_callback=None, start_ts=None, en
         if not results: 
             return {"status": "success", "data": "[]"}
         final = pd.DataFrame(results).drop_duplicates(subset=['Time', 'A_Party'])
-        return {"status": "success", "data": json.dumps(final.sort_values('Time', ascending=False).head(1500).to_dict('records'), ensure_ascii=False)}
+        return {"status": "success", "data": json.dumps(final.sort_values('Time', ascending=False).to_dict('records'), ensure_ascii=False)}
     except Exception as e: 
         return {"status": "error", "message": f"Critical Location Error: {str(e)}"}
