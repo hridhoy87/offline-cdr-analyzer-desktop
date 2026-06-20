@@ -436,7 +436,7 @@ def crop_cdr_data(file_paths, location_query, start_ts, end_ts, output_dir):
     except Exception as e: 
         return {"status": "error", "message": str(e)}
 
-def same_location_analysis(file_paths, progress_callback=None):
+def same_location_analysis(file_paths, progress_callback=None, start_ts=None, end_ts=None):
     """Identifies concurrent location overlaps across multi-device data logs."""
     try:
         paths = [str(p).strip() for p in file_paths if p and str(p) != 'None' and len(str(p)) > 5]
@@ -463,6 +463,14 @@ def same_location_analysis(file_paths, progress_callback=None):
             return {"status": "error", "message": "Insufficient valid data layers."}
         combined = pd.concat(all_data, ignore_index=True).dropna(subset=['D', 'A'])
         results = []
+
+        # --- NEW TIMELINE FILTERING LOGIC INJECTION ---
+        if start_ts and end_ts:
+            mask = (combined['R'] >= pd.to_datetime(start_ts)) & (combined['R'] <= pd.to_datetime(end_ts))
+            combined = combined[mask]
+            if combined.empty:
+                return {"status": "success", "data": "[]"}
+        # ----------------------------------------------
         
         unique_days = sorted(combined['D'].unique())
         total_days = len(unique_days)

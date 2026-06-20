@@ -46,12 +46,18 @@ class SameLocationWorker(QThread):
     def __init__(self, file_paths):
         super().__init__()
         self.file_paths = file_paths
+        # Define internal property storage states
+        self.start_ts = None
+        self.end_ts = None
 
     def run(self):
         try:
+            # Map keyword calls to our updated core engine signatures safely
             result = index.same_location_analysis(
-                self.file_paths, 
-                progress_callback=lambda p: self.progress_updated.emit(p)
+                file_paths=self.file_paths,
+                progress_callback=lambda p: self.progress_updated.emit(p),
+                start_ts=self.start_ts,
+                end_ts=self.end_ts
             )
             self.finished.emit(result)
         except Exception as e:

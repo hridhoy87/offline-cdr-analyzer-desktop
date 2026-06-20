@@ -513,10 +513,27 @@ class MainWindow(QMainWindow):
         self.loc_worker.start()
 
     def same_location_concluded(self, result):
-        if result["status"] == "success":
-            self.last_same_loc_data = result["data"]
+        """Callback handler that catches co-location background thread milestones."""
+        # 1. Clear the dashboard loader overlay mask cleanly
+        if hasattr(self, 'loading_overlay') and self.loading_overlay:
+            self.loading_overlay.hide()
+            
+        if result.get("status") == "success":
+            # 2. Keep standard cache states for PDF Ledger Generation
+            self.last_same_loc_data = result.get("data", "[]")
             self.btn_same_loc.setEnabled(True)
             self.btn_save_all_pdf.setEnabled(True)
+            
+            # 3. Open the upgraded interactive window, passing files down for internal filtering
+            self.loc_window = SameLocationWindow(
+                raw_json_str=self.last_same_loc_data,
+                file_paths=self.selected_files,
+                alias_database=self.alias_database
+            )
+            self.loc_window.show()
+        else:
+            self.btn_same_loc.setEnabled(True)
+            QMessageBox.critical(self, "Analysis Failure", result.get("message", "Unknown computational error."))
         # 🚫 REMOVED: loading_overlay.dismiss_loading() reference from primary background task chain
 
     def select_case_workspace(self):

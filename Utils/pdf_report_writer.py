@@ -1,4 +1,3 @@
-# pdf_report_writer.py
 """
 Forensic PDF Report Generator Matrix Engine.
 Implements universal, highly compressed monochromatic A4 document formatting
@@ -8,7 +7,8 @@ identity alias phonebook mapping bolding, and the upgraded 24-hour temporal heat
 """
 
 import os
-from PyQt6.QtGui import QTextDocument, QPageLayout, QPageSize, QMarginsF
+from PyQt6.QtCore import QMarginsF
+from PyQt6.QtGui import QTextDocument, QPageLayout, QPageSize
 from PyQt6.QtPrintSupport import QPrinter
 
 def compile_case_pdf_report(output_pdf_path, metrics, alias_database=None, location_request="N/A", timeline_analysis="N/A", cdr_names=None):
