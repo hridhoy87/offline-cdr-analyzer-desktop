@@ -9,24 +9,19 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHeaderView, QTreeView)
 from PyQt6.QtCore import Qt, QDir, QSize
 from PyQt6.QtGui import QFileSystemModel, QPixmap, QMovie, QIcon, QFont
-from datetime import datetime
-
-# Component Imports
-import Core.index as index 
 from Core.workers import AnalysisWorker, SameLocationWorker
 from Windows.crop_window import CropWindow
 from Windows.location_window import SameLocationWindow
 from Windows.graph_window import LinkAnalysisWindow
+from Widgets.heatmap_widget import TemporalHeatmapWidget
 from Dialogs.peek_dialog import TelemetryPeekDialog
 from Dialogs.search_cdr_result_dialog import SearchCdrResultDialog 
 from Dialogs.timeline_dialog import TimelinePickerDialog
 from Utils.pdf_report_writer import PDFReportWorker
-from Utils.pdf_export_manager import PDFExportManager
+import Core.index as index 
+from datetime import datetime
 
-# Extracted UI Widget Imports
-from Widgets.heatmap_widget import TemporalHeatmapWidget
-from Widgets.floating_toast import FloatingToast
-from Widgets.loading_overlay import ForensicLoadingOverlay
+from Utils.pdf_export_manager import PDFExportManager
 
 if sys.platform == "win32":
     import ctypes
@@ -34,6 +29,75 @@ if sys.platform == "win32":
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ForensicSuite.CDRAnalyzer.Desktop.v1")
     except Exception as e:
         print(f"Taskbar grouping override failed: {e}")
+
+# =========================================================================
+# ⏳ SKYPE-STYLE FORENSIC LOADING OVERLAY WITH LIGHT/DARK TRANS-MASKS
+# =========================================================================
+class ForensicLoadingOverlay(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("background-color: #0d1117;")
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        
+        master_layout = QVBoxLayout(self)
+        master_layout.setContentsMargins(0, 0, 0, 0)
+        master_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.central_card = QFrame()
+        self.central_card.setFixedSize(480, 280)
+        self.central_card.setStyleSheet("""
+            QFrame { background-color: rgba(13, 17, 23, 0.88); border: 1px solid #30363d; border-radius: 12px; }
+        """)
+        
+        card_layout = QVBoxLayout(self.central_card)
+        card_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.setSpacing(18)
+        card_layout.setContentsMargins(30, 30, 30, 30)
+        
+        self.lbl_logo = QLabel()
+        self.lbl_logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_logo.setStyleSheet("background: transparent; border: none;")
+        
+        if os.path.exists("logo.png"):
+            pixmap = QPixmap("logo.png")
+            scaled_pixmap = pixmap.scaled(90, 90, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self.lbl_logo.setPixmap(scaled_pixmap)
+        else:
+            self.lbl_logo.setText("📡")
+            self.lbl_logo.setStyleSheet("font-size: 55px; background: transparent; border: none;")
+            
+        card_layout.addWidget(self.lbl_logo)
+        
+        self.lbl_status = QLabel("Initializing Forensic Subsystem Vectors...")
+        self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_status.setWordWrap(True)
+        self.lbl_status.setStyleSheet("QLabel { color: #f0f6fc; font-size: 14px; font-weight: bold; font-family: 'Segoe UI', Arial; background: transparent; border: none; }")
+        card_layout.addWidget(self.lbl_status)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedWidth(320)
+        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.setRange(0, 0) 
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar { border: 1px solid #30363d; border-radius: 4px; text-align: center; color: white; background-color: #161b22; height: 18px; font-size: 11px; }
+            QProgressBar::chunk { background-color: #f06595; }
+        """)
+        card_layout.addWidget(self.progress_bar)
+        master_layout.addWidget(self.central_card)
+        
+        self.setVisible(False)
+
+    def trigger_loading(self, message):
+        self.lbl_status.setText(message)
+        if self.parentWidget():
+            self.resize(self.parentWidget().size())
+        self.setVisible(True)
+        self.raise_()
+        QApplication.processEvents()
+
+    def dismiss_loading(self):
+        self.setVisible(False)
 
 # =========================================================================
 # MAIN WINDOW (PURE ORCHESTRATOR LAZY LOAD EDITION)
@@ -57,6 +121,7 @@ class MainWindow(QMainWindow):
         self.alias_database = {}
         self.raw_summary_html = "" 
         
+        # We only keep the tiny heatmap dict in RAM. Everything else is on disk.
         self.last_heatmap_data = None 
         self.cache_dir = os.path.join(os.path.expanduser("~"), ".cdr_analyzer_cache")
         os.makedirs(self.cache_dir, exist_ok=True)
@@ -305,11 +370,7 @@ class MainWindow(QMainWindow):
         
         outer_layout.addWidget(master_splitter)
 
-        # Extracted Widgets Subsystem
         self.loading_overlay = ForensicLoadingOverlay(self.central_deck_container)
-        self.pdf_toast = FloatingToast(self.central_deck_container)
-        self.loading_overlay.btn_background.clicked.connect(self.minimize_to_background)
-        
         self.master_pdf_manager = PDFExportManager(self)
         self.master_pdf_manager.export_finished.connect(self._finalize_pdf_export)
 
@@ -317,13 +378,6 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
         if self.loading_overlay.isVisible():
             self.loading_overlay.resize(self.central_deck_container.size())
-        self.pdf_toast.update_position(self.central_deck_container)
-
-    def minimize_to_background(self):
-        """Hides the giant modal overlay, shows the bottom-right toast, allowing UI interaction."""
-        self.loading_overlay.dismiss_loading()
-        self.pdf_toast.show()
-        self.pdf_toast.update_position(self.central_deck_container)
 
     def select_files(self):
         start_path = self.active_case_dir if self.active_case_dir else ""
@@ -366,10 +420,12 @@ class MainWindow(QMainWindow):
 
     def analysis_concluded(self, result):
         self.main_progress_bar.setVisible(False)
-        self.background_status_box.setVisible(False)
         
         if result.get("status") == "success":
             metrics = result.get("metrics", {})
+            
+            # The engine already wrote master_data, preview_rows, graph_data, and spatial_roadmap to disk.
+            # We ONLY keep the tiny heatmap dict in RAM.
             self.last_heatmap_data = metrics.get("hourly_activity", {}) 
 
             raw_summary = f"""
@@ -428,6 +484,8 @@ class MainWindow(QMainWindow):
         if result.get("status") == "success":
             self.btn_same_loc.setEnabled(True)
             self.btn_save_all_pdf.setEnabled(True)
+            
+            # 💡 TRUE LAZY LOAD: Pass 'None' as the data payload. The window reads from Parquet natively.
             self.loc_window = SameLocationWindow(None, self.selected_files, self.alias_database)
             self.loc_window.show()
         else:
@@ -478,7 +536,7 @@ class MainWindow(QMainWindow):
         file_path, _ = QFileDialog.getSaveFileName(self, "Save Unified PDF Intelligence Dossier", start_path, "PDF Documents (*.pdf)")
         if not file_path: return
             
-        self.loading_overlay.trigger_loading("Assembling Comprehensive Master Intelligence Dossier into A4 PDF...", allow_background=True)
+        self.loading_overlay.trigger_loading("Assembling Comprehensive Master Intelligence Dossier into A4 PDF...")
 
         case_title = os.path.basename(self.active_case_dir) if self.active_case_dir else "Standalone Investigation"
         loc_text = self.input_loc.text().strip()
@@ -504,6 +562,7 @@ class MainWindow(QMainWindow):
             "aliased_summary": aliased_summary
         }
         
+        # 💡 TRUE LAZY LOAD: We do NOT load data here. PDFReportWorker reads disk natively.
         metrics = {
             "heatmap_matrix": getattr(self, 'last_heatmap_data', {})
         }
@@ -518,14 +577,13 @@ class MainWindow(QMainWindow):
 
     def _handle_pdf_error(self, error_msg):
         self.loading_overlay.dismiss_loading()
-        self.pdf_toast.hide()
         QMessageBox.critical(self, "Export Failure", f"HTML Compilation Error:\n{error_msg}")
 
     def _finalize_pdf_export(self, success, path):
         self.loading_overlay.dismiss_loading()
-        self.pdf_toast.hide()
 
     def trigger_dashboard_refresh(self):
+        # 💡 CACHE WIPE: Clear hard drive on dashboard reset
         for f in os.listdir(self.cache_dir):
             try: os.remove(os.path.join(self.cache_dir, f))
             except: pass
@@ -548,7 +606,6 @@ class MainWindow(QMainWindow):
         self.btn_same_loc.setEnabled(False)
         self.btn_save_all_pdf.setEnabled(False)
         self.background_status_box.setVisible(False)
-        self.pdf_toast.hide()
         
         while self.heatmap_layout.count():
             item = self.heatmap_layout.takeAt(0)
@@ -594,10 +651,12 @@ class MainWindow(QMainWindow):
             dialog.exec()
 
     def view_same_location(self):
+        # 💡 TRUE LAZY LOAD: Pass None, the Window handles the disk read
         self.loc_window = SameLocationWindow(None, self.selected_files, self.alias_database)
         self.loc_window.show()
 
     def open_link_graph(self):
+        # 💡 TRUE LAZY LOAD: Pass None, the Window handles the disk read
         self.graph_window = LinkAnalysisWindow(None, self.alias_database)
         self.graph_window.show()
 
@@ -622,6 +681,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, 'grouped_loc_window') or not self.grouped_loc_window.isVisible(): return
 
         if result.get("status") == "success":
+            # 💡 TRUE LAZY LOAD: Tell the window to read from the disk!
             self.grouped_loc_window.load_cache_content()
         else:
             self.grouped_loc_window.show_empty_state(f"Analysis Failed:\n{result.get('message')}")
@@ -638,7 +698,7 @@ class MainWindow(QMainWindow):
         save_path, _ = QFileDialog.getSaveFileName(self, "Export Heatmap PDF", "Heatmap_Brief.pdf", "PDF Documents (*.pdf)")
         if not save_path: return
 
-        self.loading_overlay.trigger_loading("Assembling Isolated Heatmap PDF...", allow_background=False)
+        self.loading_overlay.trigger_loading("Assembling Isolated Heatmap PDF...")
 
         config = {
             "alias_database": self.alias_database,
@@ -656,8 +716,9 @@ class MainWindow(QMainWindow):
         cache_path = os.path.join(self.cache_dir, "spatial_roadmap.json")
         if os.path.exists(cache_path):
             from Windows.chronological_spatial_analysis import ChronologicalSpatialAnalysisWindow
-            self.loading_overlay.trigger_loading("Rendering Interactive Chronological Spatial Web Canvas...", allow_background=False)
+            self.loading_overlay.trigger_loading("Rendering Interactive Chronological Spatial Web Canvas...")
             
+            # 💡 TRUE LAZY LOAD: Pass the file path natively
             self.spatial_roadmap_win = ChronologicalSpatialAnalysisWindow(cache_path, self.alias_database, self)
             self.spatial_roadmap_win.show()
             self.loading_overlay.dismiss_loading()

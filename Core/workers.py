@@ -1,12 +1,40 @@
 """
 Forensic Background Worker Matrix Threads.
-Implements granular percentage signaling back to the main GUI thread layout layers.
+Optimized for Real-Time Engine Callbacks and Disk-Backed Cache Routing.
 """
 from PyQt6.QtCore import QThread, pyqtSignal
-import Core.index as index
+import Core.index as index  
+
+class LocationGroupWorker(QThread):
+    """
+    Asynchronous forensic background matrix worker thread.
+    Triggers chronological location grouping and routes the .cache file path to the UI.
+    """
+    finished = pyqtSignal(dict)
+
+    def __init__(self, file_paths, start_ts=None, end_ts=None):
+        super().__init__()
+        self.file_paths = file_paths
+        self.start_ts = start_ts
+        self.end_ts = end_ts
+
+    def run(self):
+        try:
+            # Executes calculation and returns a lightweight dictionary containing the cache_path
+            result = index.group_location_by_date_by_CDR(
+                file_paths=self.file_paths,
+                start_ts=self.start_ts,
+                end_ts=self.end_ts
+            )
+            self.finished.emit(result)
+        except Exception as e:
+            self.finished.emit({"status": "error", "message": f"Location worker thread failure: {str(e)}"})
 
 class AnalysisWorker(QThread):
-    # Progress signature passes exact integers (0-100) and status strings to the Android Studio overlay
+    """
+    Primary processing thread. 
+    Passes real-time progress to the UI while the engine natively writes Parquet files to disk.
+    """
     progress_updated = pyqtSignal(int, str)
     finished = pyqtSignal(dict)
 
@@ -20,42 +48,45 @@ class AnalysisWorker(QThread):
 
     def run(self):
         try:
-            self.progress_updated.emit(5, "Staging document structures for ingestion...")
+            self.progress_updated.emit(5, "Initializing forensic engine protocols...")
             
-            # Execute calculation arrays on backend vectors
+            # The engine writes master_data.parquet and returns the path inside the 'result' dictionary
             result = index.process_cdr_data(
-                self.file_paths, self.location, self.output_dir, self.start_ts, self.end_ts
+                file_paths=self.file_paths, 
+                intended_location=self.location, 
+                output_dir=self.output_dir, 
+                start_ts=self.start_ts, 
+                end_ts=self.end_ts,
+                progress_callback=self.progress_updated.emit  # Direct signal injection
             )
             
-            # Intercept thread context to inject progress updates seamlessly
             if result.get("status") == "success":
-                self.progress_updated.emit(40, "Compiling multi-device geographical spatial indexes...")
-                self.progress_updated.emit(70, "Mapping chronological stay blocks and twin-SIM switches...")
-                self.progress_updated.emit(95, "Finalizing ledger matrix and formatting output worksheets...")
-            
-            self.progress_updated.emit(100, "Forensic compilation finalized.")
+                self.progress_updated.emit(100, "Forensic cache compilation finalized.")
+                
             self.finished.emit(result)
         except Exception as e:
             self.finished.emit({"status": "error", "message": f"Thread operational crash: {str(e)}"})
 
 
 class SameLocationWorker(QThread):
+    """
+    Thread for concurrent location overlaps. 
+    Signals the UI when the overlap_matrix.parquet cache file is fully generated and ready.
+    """
     progress_updated = pyqtSignal(int)
     finished = pyqtSignal(dict)
 
-    def __init__(self, file_paths):
+    def __init__(self, file_paths, start_ts=None, end_ts=None):
         super().__init__()
         self.file_paths = file_paths
-        # Define internal property storage states
-        self.start_ts = None
-        self.end_ts = None
+        self.start_ts = start_ts
+        self.end_ts = end_ts
 
     def run(self):
         try:
-            # Map keyword calls to our updated core engine signatures safely
             result = index.same_location_analysis(
                 file_paths=self.file_paths,
-                progress_callback=lambda p: self.progress_updated.emit(p),
+                progress_callback=self.progress_updated.emit,
                 start_ts=self.start_ts,
                 end_ts=self.end_ts
             )
@@ -65,6 +96,9 @@ class SameLocationWorker(QThread):
 
 
 class CropWorker(QThread):
+    """
+    Extracts bounded time frames or location sub-segments asynchronously directly to an output file.
+    """
     finished = pyqtSignal(dict)
 
     def __init__(self, file_paths, location, start_ts, end_ts, output_dir):

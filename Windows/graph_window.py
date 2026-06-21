@@ -17,61 +17,58 @@ ANALYSIS_DASHBOARD_STYLE = """
     QTextBrowser { background-color: #0d1117; border: none; color: #c9d1d9; font-size: 13px; }
 """
 
-def get_asset_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
-
 class LinkAnalysisWindow(QWidget):
-    def __init__(self, graph_json_str, alias_database=None):
+    def __init__(self, cache_dir_or_data=None, alias_database=None):
         super().__init__()
         self.setWindowTitle("🔬 Advanced Forensic Link Analysis Deck — Press 'F' to Fullscreen, 'Esc' to Exit")
         self.resize(1450, 880)
         self.alias_db = alias_database if alias_database else {}
-        
+        self.cache_path = os.path.join(os.path.expanduser("~"), ".cdr_analyzer_cache", "graph_data.json")
         self.is_graph_fullscreen = False
         
-        raw_dict = json.loads(graph_json_str)
+        # 💡 LAZY LOAD: Parse JSON directly from the hard drive
+        raw_dict = {}
+        if os.path.exists(self.cache_path):
+            try:
+                with open(self.cache_path, 'r', encoding='utf-8') as f:
+                    raw_dict = json.load(f)
+            except Exception as e: print(f"Failed to read graph cache: {e}")
+
         self.payload = self.inject_workspace_aliases_into_payload(raw_dict)
         
         self.setStyleSheet(ANALYSIS_DASHBOARD_STYLE)
         self.init_ui()
 
-        # Intercept inputs application-wide across sub-widgets securely
         qApp = QApplication.instance()
-        if qApp:
-            qApp.installEventFilter(self)
+        if qApp: qApp.installEventFilter(self)
 
     def closeEvent(self, event):
-        """Clean up application-wide event filters on window closure."""
         qApp = QApplication.instance()
-        if qApp:
-            qApp.removeEventFilter(self)
+        if qApp: qApp.removeEventFilter(self)
         super().closeEvent(event)
 
     def inject_workspace_aliases_into_payload(self, data):
-        if "centers" in data:
-            data["centers"] = [f"📌 {self.alias_db[str(c)]} [{c}]" if str(c) in self.alias_db else str(c) for c in data["centers"]]
-        if "uncommon-links" in data:
-            for item in data["uncommon-links"]:
+        import copy
+        display_data = copy.deepcopy(data)
+        if "centers" in display_data:
+            display_data["centers"] = [f"📌 {self.alias_db[str(c)]} [{c}]" if str(c) in self.alias_db else str(c) for c in display_data["centers"]]
+        if "uncommon-links" in display_data:
+            for item in display_data["uncommon-links"]:
                 src = str(item["source"])
                 if src in self.alias_db: item["source"] = f"📌 {self.alias_db[src]} [{src}]"
                 item["target-links"] = [f"📌 {self.alias_db[str(t)]} [{t}]" if str(t) in self.alias_db else str(t) for t in item["target-links"]]
-        if "common-links" in data:
-            for item in data["common-links"]:
+        if "common-links" in display_data:
+            for item in display_data["common-links"]:
                 tgt = str(item["target"])
                 if tgt in self.alias_db: item["target"] = f"📌 {self.alias_db[tgt]} [{tgt}]"
                 item["source"] = [f"📌 {self.alias_db[str(s)]} [{s}]" if str(s) in self.alias_db else str(s) for s in item["source"]]
-        if "node_profiles" in data:
+        if "node_profiles" in display_data:
             updated_profiles = {}
-            for node_id, profile in data["node_profiles"].items():
+            for node_id, profile in display_data["node_profiles"].items():
                 key = f"📌 {self.alias_db[node_id]} [{node_id}]" if node_id in self.alias_db else node_id
                 updated_profiles[key] = profile
-            data["node_profiles"] = updated_profiles
-        return data
+            display_data["node_profiles"] = updated_profiles
+        return display_data
 
     def init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -80,7 +77,6 @@ class LinkAnalysisWindow(QWidget):
         self.workspace_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.workspace_splitter.setStyleSheet("QSplitter::handle { background-color: #30363d; width: 2px; }")
         
-        # --- LEFT SIDEBAR PANEL ---
         self.left_panel = QWidget()
         left_layout = QVBoxLayout(self.left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -98,7 +94,6 @@ class LinkAnalysisWindow(QWidget):
         left_layout.addWidget(meta_scroll)
         self.workspace_splitter.addWidget(self.left_panel)
 
-        # --- RIGHT DECK VIEWPANELS ---
         self.right_splitter = QSplitter(Qt.Orientation.Vertical)
         self.right_splitter.setStyleSheet("QSplitter::handle { background-color: #30363d; height: 2px; }")
         
@@ -109,7 +104,9 @@ class LinkAnalysisWindow(QWidget):
         self.vp1_layout.addWidget(self.lbl_graph_header)
         
         self.browser_calls = QWebEngineView()
-        self.configure_browser(self.browser_calls)
+        settings = self.browser_calls.settings()
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
         self.vp1_layout.addWidget(self.browser_calls)
         self.right_splitter.addWidget(self.vp1_frame)
         
@@ -134,26 +131,20 @@ class LinkAnalysisWindow(QWidget):
 
         self.populate_hardware_text_lists()
 
-        try:
-            base_path = sys._MEIPASS
-        except Exception:
-            base_path = os.path.abspath(".")
-        html_path = os.path.join(base_path, "Utils", "link_analysis.html")
+        try: base_path = sys._MEIPASS
+        except Exception: base_path = os.path.abspath(".")
         
+        html_path = os.path.join(base_path, "Utils", "link_analysis.html")
         self.browser_calls.setUrl(QUrl.fromLocalFile(html_path))
         self.browser_calls.loadFinished.connect(self.inject_call_data)
 
     def eventFilter(self, watched, event):
-        """Catches keyboard shortcuts universally, bypassing inner browser child widget focus restrictions."""
         if event.type() == QEvent.Type.KeyPress:
-            # Typecasting block eliminated. Reference event values natively safely
             if event.key() == Qt.Key.Key_F:
-                if not self.is_graph_fullscreen:
-                    self.enter_graph_fullscreen()
+                if not self.is_graph_fullscreen: self.enter_graph_fullscreen()
                 return True
             elif event.key() == Qt.Key.Key_Escape:
-                if self.is_graph_fullscreen:
-                    self.exit_graph_fullscreen()
+                if self.is_graph_fullscreen: self.exit_graph_fullscreen()
                 return True
         return super().eventFilter(watched, event)
 
@@ -164,8 +155,6 @@ class LinkAnalysisWindow(QWidget):
         self.vp2_frame.hide()
         self.layout().setContentsMargins(0, 0, 0, 0)
         self.showFullScreen()
-        
-        # Delayed event dispatcher to give Chromium time to recalculate canvas bounds smoothly
         QTimer.singleShot(250, self.force_html_canvas_resize)
 
     def exit_graph_fullscreen(self):
@@ -175,18 +164,10 @@ class LinkAnalysisWindow(QWidget):
         self.vp2_frame.show()
         self.layout().setContentsMargins(10, 10, 10, 10)
         self.showNormal()
-        
         QTimer.singleShot(250, self.force_html_canvas_resize)
 
     def force_html_canvas_resize(self):
-        """Injects a localized JS resize command into Chromium to fit the Three.js viewport canvas."""
-        js_cmd = "if(typeof window.dispatchEvent === 'function') { window.dispatchEvent(new Event('resize')); }"
-        self.browser_calls.page().runJavaScript(js_cmd)
-
-    def configure_browser(self, view):
-        settings = view.settings()
-        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
-        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+        self.browser_calls.page().runJavaScript("if(typeof window.dispatchEvent === 'function') { window.dispatchEvent(new Event('resize')); }")
 
     def inject_call_data(self, success):
         if success:
@@ -196,8 +177,7 @@ class LinkAnalysisWindow(QWidget):
     def save_hw_index_separately(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Save Hardware Mapping Report", "Hardware_Profiles.html", "HTML Webpages (*.html)")
         if file_path:
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(self.hardware_text_list.toHtml())
+            with open(file_path, "w", encoding="utf-8") as f: f.write(self.hardware_text_list.toHtml())
 
     def build_common_contacts_panel(self):
         box = QFrame()
@@ -224,46 +204,36 @@ class LinkAnalysisWindow(QWidget):
                 
                 num_lbl = QLabel(f"🔗 Shared Contact: {common_b_party}")
                 num_lbl.setStyleSheet("font-weight: bold; color: #f06595; font-size: 11px;")
-                num_lbl.setWordWrap(True)
                 
                 freq_lbl = QLabel(f"Total Logged Interactions: {total_calls} calls")
                 freq_lbl.setStyleSheet("font-size: 11px; color: #c9d1d9;")
                 
-                linked_suspects = ", ".join(shared_by_list)
-                shared_lbl = QLabel(f"Shared By Targets: {linked_suspects}")
+                shared_lbl = QLabel(f"Shared By Targets: {', '.join(shared_by_list)}")
                 shared_lbl.setStyleSheet("font-size: 11px; color: #58a6ff;")
                 shared_lbl.setWordWrap(True)
                 
-                f_layout.addWidget(num_lbl)
-                f_layout.addWidget(freq_lbl)
-                f_layout.addWidget(shared_lbl)
+                f_layout.addWidget(num_lbl); f_layout.addWidget(freq_lbl); f_layout.addWidget(shared_lbl)
                 vbox.addWidget(item_frame)
         self.meta_layout.addWidget(box)
 
     def populate_hardware_text_lists(self):
-        html_output = '<div style="font-family: sans-serif; padding: 10px; line-height: 1.5; color: #c9d1d9;">'
-        html_output += '<h3 style="color: #58a6ff; margin-top: 0; border-bottom: 1px solid #30363d; padding-bottom: 6px;">📡 SIM Profile to Device Signatures Index (SIM ➔ IMEIs)</h3><ul style="padding-left: 20px; margin-bottom: 25px;">'
-        
-        sim_to_imei_map = self.payload.get("sim_to_imei_map", {})
-        if not sim_to_imei_map:
-            html_output += "<li><i>No subscriber hardware profile linkages found in logs.</i></li>"
+        html_output = '<div style="font-family: sans-serif; padding: 10px; line-height: 1.5; color: #c9d1d9;"><h3 style="color: #58a6ff; border-bottom: 1px solid #30363d;">📡 SIM Profile to Device Signatures Index</h3><ul style="padding-left: 20px; margin-bottom: 25px;">'
+        sim_map = self.payload.get("sim_to_imei_map", {})
+        if not sim_map: html_output += "<li><i>No subscriber hardware profile linkages found.</i></li>"
         else:
-            for sim, records in sim_to_imei_map.items():
+            for sim, records in sim_map.items():
                 sim_display = f"📌 {self.alias_db[sim]} [{sim}]" if sim in self.alias_db else sim
-                html_output += f"<li style='margin-bottom: 8px;'><b style='color: #f0f6fc;'>Subscriber SIM: {sim_display}</b><br/>"
-                html_output += "<span style='color: #8b949e;'>Linked Hardware Signatures:</span><br/>"
-                for r in records: html_output += f"&nbsp;&nbsp;&nbsp;&nbsp;• <span style='color: #ffb86c;'>IMEI: {r.get('imei', 'N/A')}</span> — <span style='color: #79c0ff;'>{r.get('hw', 'Generic Handset')}</span><br/>"
+                html_output += f"<li style='margin-bottom: 8px;'><b style='color: #f0f6fc;'>Subscriber SIM: {sim_display}</b><br/><span style='color: #8b949e;'>Linked Signatures:</span><br/>"
+                for r in records: html_output += f"&nbsp;&nbsp;• <span style='color: #ffb86c;'>IMEI: {r.get('imei', 'N/A')}</span> — <span style='color: #79c0ff;'>{r.get('hw', 'Generic Handset')}</span><br/>"
                 html_output += "</li>"
-        html_output += "</ul>"
-
-        html_output += '<h3 style="color: #f06595; border-bottom: 1px solid #30363d; padding-bottom: 6px; margin-top: 20px;">🛡️ Handset Terminal to Active SIM Profiles List (IMEI ➔ SIMs)</h3><ul style="padding-left: 20px;">'
-        imei_to_sim_map = self.payload.get("imei_to_sim_map", {})
-        if not imei_to_sim_map:
-            html_output += "<li><i>No cross-link physical device swaps observed.</i></li>"
+        
+        html_output += '</ul><h3 style="color: #f06595; border-bottom: 1px solid #30363d;">🛡️ Handset Terminal to Active SIMs List</h3><ul style="padding-left: 20px;">'
+        imei_map = self.payload.get("imei_to_sim_map", {})
+        if not imei_map: html_output += "<li><i>No cross-link physical device swaps observed.</i></li>"
         else:
-            for imei, info in imei_to_sim_map.items():
+            for imei, info in imei_map.items():
                 sims_mapped = [f"📌 {self.alias_db[str(s)]} [{s}]" if str(s) in self.alias_db else str(s) for s in info.get("sims", [])]
-                html_output += f"<li style='margin-bottom: 8px;'><b style='color: #f0f6fc;'>Handset Model: {info.get('hardware', 'Generic Device')}</b><br/><span style='color: #8b949e;'>Signature IMEI:</span> <span style='color: #ff79c6;'>{imei}</span><br/><span style='color: #8b949e;'>Linked Subscriber IMSIs:</span> <span style='color: #58a6ff;'>{', '.join(sims_mapped)}</span></li>"
+                html_output += f"<li style='margin-bottom: 8px;'><b style='color: #f0f6fc;'>Model: {info.get('hardware', 'Generic')}</b><br/><span style='color: #8b949e;'>IMEI:</span> <span style='color: #ff79c6;'>{imei}</span><br/><span style='color: #8b949e;'>Linked SIMs:</span> <span style='color: #58a6ff;'>{', '.join(sims_mapped)}</span></li>"
         html_output += "</ul></div>"
         self.hardware_text_list.setHtml(html_output)
 
