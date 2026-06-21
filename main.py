@@ -14,6 +14,7 @@ from datetime import datetime
 # Component Imports
 import Core.index as index 
 from Core.workers import AnalysisWorker, SameLocationWorker
+from Utils.Anim.animation import apply_mac_open_animation
 from Windows.crop_window import CropWindow
 from Windows.location_window import SameLocationWindow
 from Windows.graph_window import LinkAnalysisWindow

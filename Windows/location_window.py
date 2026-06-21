@@ -22,7 +22,7 @@ class SameLocationWindow(QWidget):
         
         # 💡 DEFER LOADING: Open the window instantly, show the loading screen, then load data.
         QTimer.singleShot(100, self.render_data_matrix)
-
+                
     def init_ui(self):
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(15, 15, 15, 15)

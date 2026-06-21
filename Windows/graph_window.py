@@ -8,6 +8,7 @@ from PyQt6.QtWebEngineCore import QWebEngineSettings
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import QUrl, Qt, QEvent, QTimer
 from PyQt6.QtGui import QKeyEvent
+from Utils.Anim.animation import apply_mac_open_animation
 
 ANALYSIS_DASHBOARD_STYLE = """
     QWidget { background-color: #0d1117; color: #c9d1d9; font-family: sans-serif; }
@@ -41,6 +42,7 @@ class LinkAnalysisWindow(QWidget):
 
         qApp = QApplication.instance()
         if qApp: qApp.installEventFilter(self)
+
 
     def closeEvent(self, event):
         qApp = QApplication.instance()

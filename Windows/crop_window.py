@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLineEdit, QLabel, QFileDialog, QProgressBar, QMessageBox, QFrame)
 from PyQt6.QtCore import Qt, QDateTime, QTime, QDate
 from Core.workers import CropWorker
+from Utils.Anim.animation import apply_mac_open_animation
 
 CROP_STYLESHEET = """
     QWidget { background-color: #0d1117; color: #c9d1d9; }
@@ -24,6 +25,11 @@ class CropWindow(QWidget):
         self.setStyleSheet(CROP_STYLESHEET)
         self.selected_files = []
         self.init_ui()
+
+    def showEvent(self, event):
+        """Trigger macOS-style entry animation when the window appears."""
+        super().showEvent(event)
+        apply_mac_open_animation(self)
 
     def init_ui(self):
         layout = QVBoxLayout(self)

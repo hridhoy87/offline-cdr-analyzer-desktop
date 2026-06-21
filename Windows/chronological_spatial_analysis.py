@@ -7,6 +7,8 @@ from PyQt6.QtGui import QPageLayout, QPageSize
 from PyQt6.QtWebEngineCore import QWebEngineSettings
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
+from Utils.Anim.animation import apply_mac_open_animation
+
 class ChronologicalSpatialAnalysisWindow(QDialog):
     def __init__(self, cache_path_or_data, alias_database=None, parent=None):
         super().__init__(parent)
